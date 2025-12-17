@@ -104,7 +104,7 @@ class LicenseContext:
     def from_pyarmor(
         cls,
         public_key_pem: bytes,
-        expected_product: str,
+        expected_product: Union[str, Sequence[str]],
         *,
         require_customer: bool = False,
         require_plan: bool = False,
@@ -122,7 +122,7 @@ class LicenseContext:
         cls,
         *,
         pubkey_path: Union[str, os.PathLike],
-        expected_product: str,
+        expected_product: Union[str, Sequence[str]],
         require_customer: bool = False,
         require_plan: bool = False,
         pinned_fingerprints_sha256: Optional[Sequence[str]] = None,
@@ -136,6 +136,9 @@ class LicenseContext:
         pubkey_path:
           - if search=False: treated as a direct path
           - if search=True: treated as a filename to be searched via find_file_candidates
+
+        expected_product:
+          - can be a single product (str) or multiple products (Sequence[str])
 
         pinned_fingerprints_sha256:
           - optional allowlist of sha256 fingerprints to reduce key swapping risk

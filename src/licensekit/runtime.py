@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import importlib
 import pkgutil
-from typing import Any, Dict, Optional, Callable
+from typing import Any, Dict, Optional, Callable, Union, Sequence
 
 from ecdsa import VerifyingKey
 
@@ -107,7 +107,7 @@ def get_bind_data_token() -> str:
 
 def require_pyarmor_signed_license(
     public_key_pem: bytes,
-    expected_product: str,
+    expected_product: Union[str, Sequence[str]],
     *,
     now: Optional[int] = None,
     require_customer: bool = False,
@@ -117,7 +117,7 @@ def require_pyarmor_signed_license(
     - Reads signed token from PyArmor bind-data
     - Verifies signature (ECDSA P-256)
     - Enforces claims:
-        - product must match expected_product
+        - product must match expected_product (can be a single product or list of products)
         - expires_at must be in the future (if present and non-zero)
         - optionally require customer/plan fields
 
@@ -133,9 +133,25 @@ def require_pyarmor_signed_license(
 
     payload = verified.payload
 
-    if payload.get("product") != expected_product:
+    # Normalize expected_product to a list
+    if isinstance(expected_product, str):
+        expected_products = [expected_product]
+    else:
+        expected_products = list(expected_product)
+
+    # Get product from payload (can be a single product or list)
+    license_product = payload.get("product")
+    if isinstance(license_product, str):
+        license_products = [license_product]
+    elif isinstance(license_product, list):
+        license_products = license_product
+    else:
+        license_products = []
+
+    # Check if any license product matches any expected product
+    if not any(p in expected_products for p in license_products):
         raise LicenseValidationError(
-            f"License not valid for this product. Expected '{expected_product}', got '{payload.get('product')}'."
+            f"License not valid for this product. Expected {expected_products}, got {license_products}."
         )
 
     n = int(time.time()) if now is None else int(now)

@@ -14,7 +14,11 @@ def _parse_csv(s: str):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--product", required=True)
+    ap.add_argument(
+        "--product",
+        required=True,
+        help="Product name or comma-separated product names (e.g., 'myapp' or 'myapp,otherapp')",
+    )
     ap.add_argument("--customer", required=True)
     ap.add_argument("--plan", choices=["free", "pro", "enterprise"], required=True)
     ap.add_argument(
@@ -31,8 +35,17 @@ def main() -> None:
     now = int(time.time())
     expires_at = 0 if args.days == 0 else now + args.days * 24 * 3600
 
+    # Parse product(s): can be single or comma-separated
+    products = _parse_csv(args.product)
+    if not products:
+        raise ValueError("--product must be non-empty")
+    
+    # If single product, store as string for backward compatibility
+    # If multiple products, store as list
+    product_value = products[0] if len(products) == 1 else products
+
     payload = {
-        "product": args.product,
+        "product": product_value,
         "customer": args.customer,
         "plan": args.plan,
         "issued_at": now,
