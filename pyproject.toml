@@ -1,0 +1,85 @@
+[build-system]
+requires = ["poetry-core>=1.6.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "licensekit"
+version = "0.0.1"
+description = "Pure-Python ECDSA license tokens for PyArmor outer keys (bind-data), with plan/feature policy helpers."
+keywords = ["license", "licensing", "pyarmor", "obfuscation", "ecdsa", "feature-flags"]
+authors = ["Ryan Julyan <ryan@julyan.biz>"]
+license = "MIT"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security :: Cryptography",
+  "Topic :: Software Development :: Libraries",
+]
+readme = "README.md"
+homepage = "https://pypi.org/project/licensekit/"
+repository = "https://github.com/systemizing-solutions/licensekit"
+packages = [
+    { include = "licensekit", from = "src" }
+]
+include = ["src/licensekit/*"]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<4.0"
+ecdsa = "^0.18.0"
+# Include optional dependencies
+pyarmor = { version = ">=9.2.3", optional = true }
+
+[poetry.group.dev.dependencies]
+black = "^24.10.0"
+bumpver = "^2025.1131"
+coverage = "^7.6.4"
+flake8 = "^7.1.1"
+flake8-html = "^0.4.3"
+isort = "^5.13.2"
+mypy = "^1.13.0"
+pytest = "^8.3.3"
+
+# Optional: both libs are extras (no hard deps)
+[tool.poetry.extras]
+pyarmor = ["pyarmor"]
+
+[tool.poetry.scripts]
+licensekit-make-keys = "licensekit.cli_make_keys:main"
+licensekit-make-pyarmor-key = "licensekit.cli_make_pyarmor_key:main"
+licensekit-show-public-key-fingerprint = "licensekit.cli_show_public_key_fingerprint:main"
+licensekit-issue-license = "licensekit.cli_issue_license:main"
+
+
+[tool.urls]
+"Homepage" = "https://pypi.org/project/castenv/"
+"Repository" = "https://github.com/systemizing-solutions/castenv"
+
+[tool.bumpver]
+current_version = "0.0.1"
+version_pattern = "MAJOR.MINOR.PATCH"
+commit_message = "bump version {old_version} -> {new_version}"
+tag_message = "{new_version}"
+tag_scope = "default"
+pre_commit_hook = ""
+post_commit_hook = ""
+commit = true
+tag = true
+push = true
+
+[tool.bumpver.file_patterns]
+"pyproject.toml" = [
+    '^version = "{version}"',
+    '^current_version = "{version}"',
+]
+"src/licensekit/__init__.py" = [
+    '__version__ = "{version}"',
+]
+"README.md" = [
+    '^**current_version** = "v{version}"',
+]
