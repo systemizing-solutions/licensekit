@@ -27,6 +27,12 @@ class LicenseContext:
 
     Includes from_pyarmor_files(...) to load public key PEM from disk with optional
     fingerprint pinning.
+
+    Important behavior note:
+    - from_pyarmor_files(search=True) will ONLY fall back to other candidates
+      if the public key file fails to load (PublicKeyLoadError).
+    - If the public key loads but the license/token validation fails, the
+      underlying LicenseValidationError is raised (not wrapped as PublicKeyLoadError).
     """
 
     payload: Dict[str, Any]
@@ -139,6 +145,7 @@ class LicenseContext:
                 pubkey_path,
                 pinned_fingerprints_sha256=pinned_fingerprints_sha256,
             )
+            # If license validation fails, let it raise its own exception.
             return cls.from_pyarmor(
                 public_key_pem=public_key_pem,
                 expected_product=expected_product,
@@ -154,29 +161,41 @@ class LicenseContext:
             include_cwd=True,
         )
 
-        last_err: Optional[Exception] = None
-        for p in candidates:
-            if p.exists() and p.is_file():
-                try:
-                    public_key_pem = load_public_key_pem(
-                        p,
-                        pinned_fingerprints_sha256=pinned_fingerprints_sha256,
-                    )
-                    return cls.from_pyarmor(
-                        public_key_pem=public_key_pem,
-                        expected_product=expected_product,
-                        require_customer=require_customer,
-                        require_plan=require_plan,
-                    )
-                except Exception as e:
-                    last_err = e
-                    continue
+        last_key_err: Optional[Exception] = None
 
-        if last_err is not None:
+        for p in candidates:
+            if not (p.exists() and p.is_file()):
+                last_key_err = FileNotFoundError(f"Public key file not found: {p}")
+                print(f"Public key file not found: {p}")
+                continue
+
+            # Only catch key loading errors here
+            try:
+                public_key_pem = load_public_key_pem(
+                    p,
+                    pinned_fingerprints_sha256=pinned_fingerprints_sha256,
+                )
+            except PublicKeyLoadError as e:
+                last_key_err = e
+                continue
+            except Exception as e:
+                last_key_err = e
+                continue
+
+            # Public key loaded successfully. Do NOT swallow license errors.
+            return cls.from_pyarmor(
+                public_key_pem=public_key_pem,
+                expected_product=expected_product,
+                require_customer=require_customer,
+                require_plan=require_plan,
+            )
+
+        # No candidate worked for loading a public key
+        if last_key_err is not None:
             raise PublicKeyLoadError(
                 "Failed to load public key from any candidate path. "
                 f"Tried: {[str(c) for c in candidates]}"
-            ) from last_err
+            ) from last_key_err
 
         raise PublicKeyLoadError(
             "Public key file not found. " f"Tried: {[str(c) for c in candidates]}"

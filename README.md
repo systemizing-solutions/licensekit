@@ -44,13 +44,7 @@ This writes:
 
 2) Issue a token (per customer)
 ```shell
-licensekit-issue-license \
-  --product my_product \
-  --customer customerA \
-  --plan pro \
-  --days 60 \
-  --features export,sync,api \
-  --private-key license_signing_private.pem
+licensekit-issue-license  --product my_product  --customer customerA  --plan pro  --days 60  --features export,sync,api  --private-key license_signing_private.pem
 ```
 
 This prints a token like:
@@ -60,25 +54,11 @@ This prints a token like:
 
 3) Put token into PyArmor runtime key (outer key)
 ```shell
-licensekit-make-pyarmor-key --token "PASTE_TOKEN_HERE" --customer customerA --expire-days 60 
+licensekit-make-pyarmor-key --token "PASTE_TOKEN_HERE" --customer customerA --expire-days 60
 # outputs: </absolute/path/to/>licenses/customerA/pyarmor.rkey
 ```
-# produces licenses/customerA/pyarmor.rkey
 
-4) Obfuscate with PyArmor (outer key required)
-```shell
-pyarmor gen --outer -O dist test.py
-```
-
-Ship dist/ without the key. Provide customer pyarmor.rkey.
-
-Shipping a public key file next to the runtime key
-
-You may also ship:
-- license_pub.pem (public key PEM)
-- pyarmor.rkey
-
-in the same folder, then load the public key from disk at runtime.
+4) LicenseContext in the python Entrypoint
 
 Fingerprint pinning (recommended)
 
@@ -97,10 +77,13 @@ Load public key from file + fingerprint pinning
 ```python
 from licensekit import LicenseContext
 
+print("Started Test.py")
+
 PINNED = ["<sha256 hex fingerprint>"]
 
+print("Getting License Context")
 ctx = LicenseContext.from_pyarmor_files(
-    pubkey_path="license_pub.pem",
+    pubkey_path="license_signing_public.pem",
     expected_product="my_product",
     require_customer=True,
     require_plan=True,
@@ -109,10 +92,14 @@ ctx = LicenseContext.from_pyarmor_files(
     base_file=__file__,
 )
 
+print("Checking Pro plan")
 ctx.require_plan("pro")
+print("has Pro plan")
+
 if ctx.feature("export"):
     print("Export enabled")
 ```
+
 Use embedded public key bytes (no file loading)
 ```python
 from licensekit import LicenseContext
@@ -128,6 +115,21 @@ ctx = LicenseContext.from_pyarmor(
     require_plan=True,
 )
 ```
+
+5) Obfuscate with PyArmor (outer key required)
+```shell
+pyarmor gen --outer -O dist test.py
+```
+
+Ship dist/ without the key. Provide customer pyarmor.rkey.
+
+Shipping a public key file next to the runtime key
+
+You may also ship:
+- license_pub.pem (public key PEM)
+- pyarmor.rkey
+
+in the same folder, then load the public key from disk at runtime.
 
 ## Payload schema (suggested)
 Typical payload fields:

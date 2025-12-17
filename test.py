@@ -1,10 +1,13 @@
 from licensekit import LicenseContext
 
-PINNED = ["221fb0741f36e144b2132ab87f02428d126e815951e8ff3e7fc5a740dd5eae36"]
+print("Started Test.py")
 
+PINNED = ["438157b48448599e8e0c11409de0309152d876c53c40548fb09bbaaa1ea68d10"]
+
+print("Getting License Context")
 ctx = LicenseContext.from_pyarmor_files(
     pubkey_path="license_signing_public.pem",
-    expected_product="Example",
+    expected_product="my_product",
     require_customer=True,
     require_plan=True,
     pinned_fingerprints_sha256=PINNED,
@@ -12,6 +15,9 @@ ctx = LicenseContext.from_pyarmor_files(
     base_file=__file__,
 )
 
-# ctx.require_plan("pro")
-# if ctx.feature("export"):
-#     print("Export enabled")
+print("Checking Pro plan")
+ctx.require_plan("pro")
+print("has Pro plan")
+
+if ctx.feature("export"):
+    print("Export enabled")
