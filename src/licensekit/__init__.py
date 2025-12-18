@@ -33,7 +33,11 @@ __version__ = "0.0.4"
 
 # Testing utilities - conditionally imported to avoid pytest dependency in production
 try:
-    from .testing_utils import mock_license_context, patch_license_context
+    from .testing_utils import (
+        mock_license_context,
+        patch_license_context,
+        install_mocks,
+    )
 
     __all__ = [
         "KeyPair",
@@ -63,6 +67,7 @@ try:
         "LicenseContext",
         "mock_license_context",
         "patch_license_context",
+        "install_mocks",
     ]
 except ImportError:
     # pytest not available, testing utilities not exported

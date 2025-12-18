@@ -161,72 +161,98 @@ in the same folder, then load the public key from disk at runtime.
 
 When testing packages that use licensekit, you don't have access to the PyArmor runtime (unless code is obfuscated), so `LicenseContext.from_pyarmor_files()` will fail. 
 
-licensekit provides pytest fixtures that automatically mock `LicenseContext` during testing.
+licensekit provides two approaches to mock `LicenseContext` during testing:
+1. **Recommended**: sys.modules mocking at import time (most reliable)
+2. **Alternative**: pytest fixtures (simpler but requires careful setup)
 
-### Usage in dependent packages
+### Approach 1: sys.modules Mocking (Recommended)
 
-In your package that uses licensekit, create a `conftest.py` file and import the testing fixtures:
+This approach is the most reliable because it mocks licensekit **before any code tries to import it**, avoiding PyArmor runtime detection entirely.
+
+Create a `conftest.py` at your **project root** (before pytest discovers test files):
 
 ```python
-# test_licensekit_conf.py
-from licensekit import patch_license_context
+# conftest.py (at project root)
+"""
+Root-level pytest configuration for mocking PyArmor license validation.
 
-# That's it! The autouse fixture will apply the mock to all your tests automatically.
+This file MUST be at the root of the project so pytest discovers and loads it
+BEFORE scanning test directories. This ensures mocks are in place before any
+code tries to import licensekit.
+"""
+
+from licensekit.testing_utils import install_mocks
+
+# Install mocks at module load time, before pytest discovers any tests
+install_mocks()
 ```
 
-Now your tests will run without needing a real license:
+That's it! Now all your tests will use mocked licensekit without any license validation.
 
 ```python
 # test_my_feature.py
 from myapp import my_licensed_feature
 
 def test_my_feature():
-    # LicenseContext is automatically mocked during this test
+    # LicenseContext is mocked at import time, so this works without a real license
     result = my_licensed_feature()
     assert result is not None
 ```
 
-### How it works
+### Approach 2: pytest Fixtures (Alternative)
 
-- `patch_license_context` is an **autouse fixture** that automatically patches `LicenseContext` for all tests
-- It returns a mock `LicenseContext` with permissive default claims:
-  - `product`: "forced_mock_example_test_product"
-  - `customer`: "forced_mock_test_customer"
-  - `plan`: "forced_mock_pro_plan"
-  - `features`: ["forced_mock_export", "forced_mock_sync", "forced_mock_api"]
-
-### Customizing the mock (optional)
-
-If you need different claim values in your tests, you can use the `mock_license_context` fixture:
+If you prefer the pytest fixtures approach:
 
 ```python
 # conftest.py
-from licensekit import mock_license_context, patch_license_context
-from unittest.mock import patch
+from licensekit import patch_license_context
 
-@pytest.fixture
-def custom_license_context():
-    """Override with your test-specific license claims."""
-    from licensekit import LicenseContext
-    return LicenseContext.from_payload({
-        "product": "my_product",
-        "customer": "test_customer",
-        "plan": "free",  # Test free plan features
-        "features": ["basic"],
-    })
+# The autouse fixture will apply to all tests automatically
+```
 
-@pytest.fixture
-def patch_with_custom_license(custom_license_context):
-    """Patch with custom claims instead of defaults."""
-    with patch("licensekit.LicenseContext", return_value=custom_license_context):
-        yield
+This works but is less reliable than Approach 1 because it depends on fixture timing.
+
+### How the mocks work
+
+The mocks provide:
+- **product**: "forced_mock_test_product"
+- **customer**: "forced_mock_test_customer"  
+- **plan**: "forced_mock_pro_plan"
+- **features**: ["forced_mock_export", "forced_mock_sync", "forced_mock_api"]
+
+All license checks (`.require_plan()`, `.feature()`, etc.) return `True` or succeed without error.
+
+### Customizing the mock
+
+If you need different claim values for specific tests, you can create custom mocks:
+
+```python
+# conftest.py
+from licensekit.testing_utils import create_mock_licensekit_context
+import sys
+
+# Create a custom mock with your desired claims
+custom_context_module = create_mock_licensekit_context()
+
+class MyCustomMockContext(custom_context_module.LicenseContext):
+    @staticmethod
+    def from_pyarmor(*args, **kwargs):
+        return MyCustomMockContext(payload={
+            "product": "my_product",
+            "customer": "test_customer",
+            "plan": "free",  # Test free tier features
+            "features": ["basic"],
+        })
+
+# Replace the mock
+sys.modules["licensekit.context"].LicenseContext = MyCustomMockContext
 ```
 
 ### Testing obfuscated code
 
 Once your code is obfuscated with PyArmor:
 - The PyArmor runtime **will** be available
-- License validation will work normally
+- License validation will work normally  
 - Your production code doesn't need any test-specific logic
 
 This means you can safely:
