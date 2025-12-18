@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "licensekit"
-version = "0.0.3"
+version = "0.0.4"
 description = "Pure-Python ECDSA license tokens for PyArmor outer keys (bind-data), with plan/feature policy helpers."
 keywords = ["license", "licensing", "pyarmor", "obfuscation", "ecdsa", "feature-flags"]
 authors = ["Ryan Julyan <ryan@julyan.biz>"]
@@ -61,7 +61,7 @@ licensekit-issue-license = "licensekit.cli_issue_license:main"
 "Repository" = "https://github.com/systemizing-solutions/castenv"
 
 [tool.bumpver]
-current_version = "0.0.3"
+current_version = "0.0.4"
 version_pattern = "MAJOR.MINOR.PATCH"
 commit_message = "bump version {old_version} -> {new_version}"
 tag_message = "{new_version}"

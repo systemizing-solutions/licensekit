@@ -1,7 +1,7 @@
 # licensekit
 Pure-Python ECDSA license tokens for PyArmor outer keys (bind-data), with plan/feature policy helpers. Designed to work nicely with PyArmor `--outer` + `--bind-data`
 
-current_version = "v0.0.2"
+current_version = "v0.0.4"
 
 ## Flow
 
