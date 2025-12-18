@@ -12,19 +12,28 @@ from .token import verify_token, LicenseFormatError, LicenseSignatureError
 
 
 class LicenseValidationError(RuntimeError):
+    """Exception raised when license validation fails."""
+
     pass
 
 
 def _find_pyarmor_runtime_pyarmor_func() -> Callable[..., Any]:
     """
-    PyArmor v8/9 ships a runtime package named like:
-      pyarmor_runtime_000000
+    Locate and return the __pyarmor__ function from the PyArmor runtime package.
 
-    Obfuscated scripts import __pyarmor__ from that runtime package,
-    but imported modules (like licensekit) do not automatically have
-    __pyarmor__ in their globals.
+    PyArmor v8/9 ships with a runtime package (e.g., pyarmor_runtime_000000) that provides
+    obfuscation and runtime protection features. Obfuscated scripts have __pyarmor__ in their
+    globals, but imported modules like licensekit need to explicitly locate and import it.
 
-    This function finds the installed runtime package and returns its __pyarmor__.
+    First tries the default runtime package name, then scans for any pyarmor_runtime_*
+    packages if the default is not found.
+
+    Returns:
+        Callable __pyarmor__ function from the runtime package.
+
+    Raises:
+        LicenseValidationError: If no PyArmor runtime package is found or if found packages
+                              do not expose a callable __pyarmor__ function.
     """
     # Fast path: this is the default runtime name in your build output
     for name in ("pyarmor_runtime_000000",):
@@ -69,11 +78,20 @@ def _find_pyarmor_runtime_pyarmor_func() -> Callable[..., Any]:
 
 def get_bind_data_token() -> str:
     """
-    Read token stored in PyArmor runtime key via --bind-data.
+    Extract and decode the license token from PyArmor runtime bind-data.
 
-    Use the same call pattern as the PyArmor reference docs/examples:
-        __pyarmor__(0, None, b'keyinfo', 1)  -> bind data (bytes)
-        __pyarmor__(1, None, b'keyinfo', 1)  -> expired epoch (int)
+    The token is stored in the PyArmor runtime key via the --bind-data option during
+    obfuscation. This function calls the __pyarmor__ function using the standard pattern:
+        __pyarmor__(0, None, b'keyinfo', 1)  -> returns bind-data as bytes
+        __pyarmor__(1, None, b'keyinfo', 1)  -> returns expired epoch as integer
+
+    Returns:
+        License token string extracted from bind-data.
+
+    Raises:
+        LicenseValidationError: If the PyArmor runtime cannot be found, if no bind-data
+                              is present, if bind-data is not valid UTF-8, or if the
+                              extracted data does not look like a signed token.
     """
     try:
         pyarmor_fn = _find_pyarmor_runtime_pyarmor_func()
@@ -114,14 +132,30 @@ def require_pyarmor_signed_license(
     require_plan: bool = False,
 ) -> Dict[str, Any]:
     """
-    - Reads signed token from PyArmor bind-data
-    - Verifies signature (ECDSA P-256)
-    - Enforces claims:
-        - product must match expected_product (can be a single product or list of products)
-        - expires_at must be in the future (if present and non-zero)
-        - optionally require customer/plan fields
+    Validate a PyArmor-bound license token and enforce license claims.
 
-    Returns payload dict if OK; raises LicenseValidationError if not OK.
+    This is the main entry point for license validation. It:
+    1. Reads the signed token from PyArmor bind-data
+    2. Verifies the ECDSA P-256 signature using the provided public key
+    3. Validates license claims:
+       - product claim must match expected_product (supports single product or list)
+       - expires_at claim (if present and non-zero) must be in the future
+       - optionally enforces presence of customer and/or plan fields
+
+    Args:
+        public_key_pem: Public key in PEM format (bytes) for signature verification.
+        expected_product: Single product name (str) or sequence of acceptable product names.
+        now: Current timestamp as integer epoch seconds. If None, uses current time.
+        require_customer: If True, raises error if license lacks a customer field.
+        require_plan: If True, raises error if license lacks a plan field.
+
+    Returns:
+        License payload dictionary (verified and validated).
+
+    Raises:
+        LicenseValidationError: If license is invalid, signature verification fails,
+                              product does not match, license has expired, or required
+                              fields are missing.
     """
     token = get_bind_data_token()
     vk: VerifyingKey = load_public_key(public_key_pem)

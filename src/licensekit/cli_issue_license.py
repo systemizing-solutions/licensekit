@@ -7,12 +7,46 @@ from .token import issue_token
 
 
 def _parse_csv(s: str):
+    """
+    Parse a comma-separated string into a list of non-empty trimmed strings.
+
+    Args:
+        s: Comma-separated string (e.g., "feature1, feature2, feature3").
+
+    Returns:
+        List of trimmed, non-empty strings. Empty string returns empty list.
+    """
     if not s:
         return []
     return [p.strip() for p in s.split(",") if p.strip()]
 
 
 def main() -> None:
+    """
+    CLI command to issue (create and sign) a new license token.
+
+    Generates a signed license token with the specified claims:
+      - product: Single product or comma-separated list of products
+      - customer: Customer name
+      - plan: Plan tier (free, pro, enterprise)
+      - issued_at: Current timestamp (epoch seconds)
+      - expires_at: Expiration timestamp (0 if no expiry)
+      - features: Comma-separated list of enabled features
+
+    The token is created using ECDSA P-256 deterministic signing with the private key,
+    and printed to stdout in the format: base64url(payload).base64url(signature)
+
+    For backward compatibility, single products are stored as strings, while multiple
+    products are stored as a list in the payload.
+
+    Command-line arguments:
+        --product (required): Product name or comma-separated names
+        --customer (required): Customer identifier
+        --plan (required): Plan tier (free, pro, or enterprise)
+        --days: License validity in days (default: 30, use 0 for no expiry)
+        --features: Comma-separated feature names (default: empty)
+        --private-key: Path to private key PEM file (default: 'license_signing_private.pem')
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--product",
@@ -39,7 +73,7 @@ def main() -> None:
     products = _parse_csv(args.product)
     if not products:
         raise ValueError("--product must be non-empty")
-    
+
     # If single product, store as string for backward compatibility
     # If multiple products, store as list
     product_value = products[0] if len(products) == 1 else products

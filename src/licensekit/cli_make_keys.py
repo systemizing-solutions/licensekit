@@ -5,6 +5,21 @@ from .crypto import generate_keypair
 
 
 def main() -> None:
+    """
+    CLI command to generate a new ECDSA keypair for license signing.
+
+    Generates a P-256 (NIST256p) ECDSA keypair and writes both keys to PEM files:
+      - license_signing_private.pem: Private key (keep secret, vendor-only)
+      - license_signing_public.pem: Public key (safe to distribute)
+
+    Both files are written to the output directory (default: current directory).
+    Creates the output directory if it doesn't exist.
+
+    Prints the paths of both generated files to stdout.
+
+    Command-line arguments:
+        --out-dir: Output directory for the PEM files (default: '.')
+    """
     ap = argparse.ArgumentParser()
     ap.add_argument(
         "--out-dir",

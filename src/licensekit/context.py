@@ -19,41 +19,62 @@ from .io import find_file_candidates, load_public_key_pem, PublicKeyLoadError
 @dataclass(frozen=True)
 class LicenseContext:
     """
-    Convenience wrapper around a verified license payload.
+    Immutable convenience wrapper around a verified license payload.
 
-    - feature flags: ctx.feature("export")
-    - plan checks: ctx.require_plan("pro")
-    - properties: ctx.customer, ctx.plan, ctx.expires_at
+    Provides easy access to license claims and policy enforcement methods:
 
-    Includes from_pyarmor_files(...) to load public key PEM from disk with optional
-    fingerprint pinning.
+    **Properties:**
+      - product, customer, plan: String claims from the license
+      - issued_at, expires_at: Timestamp claims (epoch seconds)
+      - features: Set of enabled feature names
 
-    Important behavior note:
-    - from_pyarmor_files(search=True) will ONLY fall back to other candidates
-      if the public key file fails to load (PublicKeyLoadError).
-    - If the public key loads but the license/token validation fails, the
-      underlying LicenseValidationError is raised (not wrapped as PublicKeyLoadError).
+    **Feature checking:**
+      - feature(name): Check if a single feature is enabled
+      - require_any_feature(*names): Require at least one feature
+      - require_all_features(*names): Require all features
+
+    **Plan checking:**
+      - plan_allows(minimum_plan): Check if plan meets tier
+      - require_plan(minimum_plan): Enforce minimum plan tier
+
+    **Construction:**
+      - from_payload(dict): Wrap a raw payload dictionary
+      - from_pyarmor(public_key_pem, expected_product): Validate PyArmor-bound license
+      - from_pyarmor_files(...): Load public key from file and validate license
+
+    **Important behavior notes:**
+      - from_pyarmor_files(search=True) will only fall back to other candidate paths
+        if the public key file fails to load (PublicKeyLoadError).
+      - If the public key loads successfully but license/token validation fails,
+        the underlying LicenseValidationError is raised (not wrapped as PublicKeyLoadError).
+
+    Attributes:
+        payload: The underlying license payload dictionary (verified and validated).
     """
 
     payload: Dict[str, Any]
 
     @property
     def product(self) -> Optional[str]:
+        """Get the product claim from the license payload, or None if absent."""
         v = self.payload.get("product")
         return str(v) if v is not None else None
 
     @property
     def customer(self) -> Optional[str]:
+        """Get the customer claim from the license payload, or None if absent."""
         v = self.payload.get("customer")
         return str(v) if v is not None else None
 
     @property
     def plan(self) -> Optional[str]:
+        """Get the plan claim from the license payload, or None if absent."""
         v = self.payload.get("plan")
         return str(v) if v is not None else None
 
     @property
     def issued_at(self) -> Optional[int]:
+        """Get the issued_at timestamp (epoch) from the license payload, or None if absent or invalid."""
         v = self.payload.get("issued_at", None)
         try:
             return int(v) if v is not None else None
@@ -62,6 +83,7 @@ class LicenseContext:
 
     @property
     def expires_at(self) -> Optional[int]:
+        """Get the expires_at timestamp (epoch) from the license payload, or None if absent or invalid."""
         v = self.payload.get("expires_at", None)
         try:
             return int(v) if v is not None else None
@@ -70,21 +92,67 @@ class LicenseContext:
 
     @property
     def features(self) -> Set[str]:
+        """Get the set of enabled features from the license payload."""
         return normalize_payload_features(self.payload)
 
     def feature(self, name: str) -> bool:
+        """
+        Check if a specific feature is enabled in the license.
+
+        Args:
+            name: Feature name to check.
+
+        Returns:
+            True if the feature is enabled, False otherwise.
+        """
         return _has_feature(self.payload, name)
 
     def plan_allows(self, minimum_plan: str) -> bool:
+        """
+        Check if the license plan meets or exceeds a minimum required tier.
+
+        Args:
+            minimum_plan: Minimum required plan name (e.g., "pro").
+
+        Returns:
+            True if the license plan meets the requirement, False otherwise.
+        """
         return _plan_allows(self.payload, minimum_plan)
 
     def require_feature(self, name: str) -> None:
+        """
+        Enforce that a specific feature is enabled in the license.
+
+        Args:
+            name: Required feature name.
+
+        Raises:
+            PolicyError: If the feature is not enabled.
+        """
         _require_feature(self.payload, name)
 
     def require_plan(self, minimum_plan: str) -> None:
+        """
+        Enforce that the license plan meets or exceeds a minimum tier.
+
+        Args:
+            minimum_plan: Minimum required plan name (e.g., "pro").
+
+        Raises:
+            PolicyError: If the license plan does not meet the requirement.
+        """
         _require_plan_at_least(self.payload, minimum_plan)
 
     def require_any_feature(self, *names: str) -> None:
+        """
+        Enforce that at least one of the specified features is enabled.
+
+        Args:
+            *names: Feature names to check.
+
+        Raises:
+            PolicyError: If none of the features are enabled.
+        """
         for n in names:
             if self.feature(n):
                 return
@@ -93,11 +161,29 @@ class LicenseContext:
         )
 
     def require_all_features(self, *names: str) -> None:
+        """
+        Enforce that all specified features are enabled.
+
+        Args:
+            *names: Feature names that must all be enabled.
+
+        Raises:
+            PolicyError: If any of the features are not enabled.
+        """
         for n in names:
             self.require_feature(n)
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "LicenseContext":
+        """
+        Create a LicenseContext from a raw payload dictionary.
+
+        Args:
+            payload: License payload dictionary.
+
+        Returns:
+            LicenseContext wrapping the payload.
+        """
         return cls(payload=dict(payload))
 
     @classmethod
@@ -109,6 +195,25 @@ class LicenseContext:
         require_customer: bool = False,
         require_plan: bool = False,
     ) -> "LicenseContext":
+        """
+        Create a LicenseContext by validating a PyArmor-bound license token.
+
+        Reads the license token from PyArmor runtime bind-data, verifies the signature,
+        and validates the license claims before wrapping in LicenseContext.
+
+        Args:
+            public_key_pem: Public key in PEM format (bytes) for signature verification.
+            expected_product: Single product name (str) or sequence of acceptable product names.
+            require_customer: If True, enforce that license has a customer field.
+            require_plan: If True, enforce that license has a plan field.
+
+        Returns:
+            LicenseContext wrapping the verified and validated license payload.
+
+        Raises:
+            LicenseValidationError: If token cannot be read, signature verification fails,
+                                  or license claims do not match expectations.
+        """
         payload = require_pyarmor_signed_license(
             public_key_pem=public_key_pem,
             expected_product=expected_product,
@@ -131,17 +236,31 @@ class LicenseContext:
         base_file: Optional[Union[str, os.PathLike]] = None,
     ) -> "LicenseContext":
         """
-        Convenience constructor to load public key PEM from a file (often shipped next to pyarmor.rkey).
+        Create a LicenseContext by loading the public key from a file and validating the license.
 
-        pubkey_path:
-          - if search=False: treated as a direct path
-          - if search=True: treated as a filename to be searched via find_file_candidates
+        This is a convenience constructor that handles file loading with optional path searching.
+        If search=False, pubkey_path is treated as a direct file path. If search=True, the path
+        is searched in a prioritized list of directories.
 
-        expected_product:
-          - can be a single product (str) or multiple products (Sequence[str])
+        Important: If the public key loads but license/token validation fails, the underlying
+        LicenseValidationError is raised (not wrapped as PublicKeyLoadError).
 
-        pinned_fingerprints_sha256:
-          - optional allowlist of sha256 fingerprints to reduce key swapping risk
+        Args:
+            pubkey_path: Path to the public key file. If search=True, treated as filename to search.
+            expected_product: Single product name (str) or sequence of acceptable product names.
+            require_customer: If True, enforce that license has a customer field.
+            require_plan: If True, enforce that license has a plan field.
+            pinned_fingerprints_sha256: Optional sequence of allowed SHA-256 fingerprints.
+            search: If True, search for pubkey_path in multiple directories. If False, treat as direct path.
+            extra_dirs: Optional additional directories to search (when search=True).
+            base_file: Optional reference file; its directory is searched first (when search=True).
+
+        Returns:
+            LicenseContext wrapping the verified and validated license payload.
+
+        Raises:
+            PublicKeyLoadError: If public key file cannot be found or loaded.
+            LicenseValidationError: If license validation fails.
         """
         if not search:
             public_key_pem = load_public_key_pem(

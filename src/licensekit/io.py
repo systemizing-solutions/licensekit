@@ -7,6 +7,8 @@ from typing import List, Optional, Sequence, Union
 
 
 class PublicKeyLoadError(RuntimeError):
+    """Exception raised when loading or validating a public key fails."""
+
     pass
 
 
@@ -26,6 +28,18 @@ def find_file_candidates(
       3) any extra_dirs provided
 
     Returns paths in the order they should be tried (deduplicated).
+
+    Args:
+        filename: Name of the file to search for.
+        extra_dirs: Optional list of additional directories to search.
+        base_file: Optional reference file path; its directory is searched first.
+        include_cwd: If True (default), include current working directory in search.
+
+    Returns:
+        List of Path objects representing candidate locations (deduplicated).
+
+    Raises:
+        ValueError: If filename is empty or whitespace-only.
     """
     if not filename or not str(filename).strip():
         raise ValueError("filename must be non-empty")
@@ -53,6 +67,18 @@ def find_file_candidates(
 
 
 def _normalize_pem_bytes(pem_bytes: bytes) -> bytes:
+    """
+    Normalize PEM-formatted bytes for consistent handling.
+
+    Converts line endings to Unix style (\\n), removes leading/trailing whitespace,
+    and ensures the data ends with a newline.
+
+    Args:
+        pem_bytes: Raw PEM-formatted bytes.
+
+    Returns:
+        Normalized PEM bytes.
+    """
     data = pem_bytes.replace(b"\r\n", b"\n").replace(b"\r", b"\n").strip()
     if not data.endswith(b"\n"):
         data += b"\n"
@@ -62,6 +88,15 @@ def _normalize_pem_bytes(pem_bytes: bytes) -> bytes:
 def public_key_fingerprint_sha256(pem_bytes: bytes) -> str:
     """
     Compute a SHA-256 fingerprint (hex) for a PEM public key blob.
+
+    Computes the SHA-256 hash of the normalized PEM bytes, useful for pinning
+    and verifying public key identity.
+
+    Args:
+        pem_bytes: PEM-formatted public key bytes.
+
+    Returns:
+        SHA-256 fingerprint as a hex string (lowercase).
     """
     normalized = _normalize_pem_bytes(pem_bytes)
     return hashlib.sha256(normalized).hexdigest()
@@ -75,9 +110,22 @@ def load_public_key_pem(
     """
     Load a public key PEM from disk, optionally enforcing fingerprint pinning.
 
-    pinned_fingerprints_sha256:
-      - if provided, the loaded PEM's sha256 fingerprint (hex) must match one of these
-      - comparison is case-insensitive, ignores surrounding whitespace
+    Reads a PEM-formatted public key file and validates it contains a valid
+    public key. If fingerprint pinning is enabled, verifies the key's SHA-256
+    fingerprint matches one of the allowed values.
+
+    Args:
+        pubkey_path: Path to the PEM public key file.
+        pinned_fingerprints_sha256: Optional sequence of allowed SHA-256 fingerprints
+                                   (case-insensitive). If provided, the loaded key's
+                                   fingerprint must match one of these values.
+
+    Returns:
+        Raw PEM-formatted public key bytes.
+
+    Raises:
+        PublicKeyLoadError: If file cannot be read, is not a valid PEM public key,
+                          or fingerprint does not match pinned values.
     """
     p = Path(pubkey_path).expanduser()
 

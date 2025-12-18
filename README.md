@@ -1,6 +1,31 @@
 # licensekit
 Pure-Python ECDSA license tokens for PyArmor outer keys (bind-data), with plan/feature policy helpers. Designed to work nicely with PyArmor `--outer` + `--bind-data`
 
+## Flow
+
+```mermaid
+graph TD
+    A["1. Vendor generates<br/>keys"] -->|license_signing_private.pem<br/>license_signing_public.pem| B["2. Issue tokens<br/>per customer<br/>can create multiple products"]
+    B -->|Token:<br/>payload.signature| C["3. Put token into<br/>PyArmor runtime license key<br/>--bind-data"]
+    C -->|Ship<br/> license_signing_public.pem<br/> + pyarmor.rkey <br/> separately<br/> which can hold multiple<br/>products in 1 key | F["5b. Customer receives<br/>license key"]
+    D["4. Obfuscate app<br/>with PyArmor<br/>pyarmor gen --outer"]
+    D -->|Ship obfuscated app<br/>separately this could have trial period key | E["5a. Customer receives<br/>obfuscated app"]
+    E --> G["6. App verifies<br/>token signature"]
+    F --> G
+    G -->|Extract claims<br/>at runtime| H["7. Enforce plan<br/>& features"]
+    H -->|Allow/Deny| I["App runs<br/>or blocks"]
+    
+    style A fill:#e1f5ff
+    style B fill:#e1f5ff
+    style C fill:#e1f5ff
+    style D fill:#fff3e0
+    style E fill:#fff3e0
+    style F fill:#fff3e0
+    style G fill:#f3e5f5
+    style H fill:#f3e5f5
+    style I fill:#c8e6c9
+```
+
 This package issues and verifies small signed license tokens using **pure-Python ECDSA** (`ecdsa` package).
 It is designed to work nicely with **PyArmor `--outer` + `--bind-data`**:
 
@@ -13,20 +38,7 @@ It also provides:
 - Plan gating (`ctx.require_plan("pro")`)
 - Optional public-key file loading + SHA-256 fingerprint pinning to reduce key-swap risk.
 
-## Install (development)
-```bash
-poetry install --extras pyarmor
-```
-
-```bash
-poetry install --all-extras
-```
-
-```bash
-poetry install
-```
-
-Vendor workflow
+## Vendor workflow
 1) Generate keys (once)
 
 Using installed CLI:
@@ -143,8 +155,107 @@ Typical payload fields:
 
 You can add extra claims (like seat counts, feature bundles, etc.) and enforce them in your app.
 
-Build and publish (Poetry)
+## Development
+### Install the local environment
+```shell
+python -m venv venv
+```
+
+#### Windows
+```shell
+venv/scripts/activate
+```
+
+#### Mac/Linux
+```shell
+source venv/bin/activate
+```
+
+### Install the local `Plugo` project
+#### Install `poetry` package manager
+```shell
+pip install poetry
+```
+
+#### Lock `poetry` dependencies
+```shell
+poetry cache clear pypi --all -n
+poetry lock
+```
+
+#### Install `plugo` package via `poetry` (including dependencies)
+```shell
+poetry install --all-extras
+```
+
+### Test
+```shell
+pytest
+coverage run -m pytest
+coverage report
+coverage html
+mypy --html-report mypy_report .
+flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --format=html --htmldir="flake8_report/basic" --exclude=venv
+flake8 . --count --exit-zero --max-complexity=11 --max-line-length=127 --statistics --format=html --htmldir="flake8_report/complexity" --exclude=venv
+```
+
+### BumpVer
+With the CLI command `bumpver`, you can search for and update version strings in your project files. It has a flexible pattern syntax to support many version schemes (SemVer, CalVer or otherwise).
+Run BumbVer with:
+```shell
+bumpver update --major
+bumpver update --minor
+bumpver update --patch
+```
+
+### Build
 ```shell
 poetry build
+```
+
+### Publish
+```shell
 poetry publish
 ```
+
+### Automated PyPI Publishing
+
+This project uses GitHub Actions to automatically publish to PyPI when a new version tag is pushed.
+
+#### Setup (One-time configuration)
+
+1. **Register a Trusted Publisher on PyPI**:
+   - Go to https://pypi.org/manage/account/publishing/
+   - Click "Add a new pending publisher"
+   - Fill in the following details:
+     - **PyPI Project Name**: `plugo`
+     - **Owner**: `RyanJulyan` (your GitHub username)
+     - **Repository name**: `plugo`
+     - **Workflow name**: `publish.yml`
+     - **Environment name**: `pypi`
+   - Click "Add pending publisher"
+
+#### How it works
+
+When you use `bumpver` to update the version:
+```shell
+bumpver update --patch  # or --minor, --major
+```
+
+This will:
+1. Update the version in `pyproject.toml`, `src/plugo/__init__.py`, and `README.md`
+2. Create a git commit with the version bump
+3. Create a git tag (e.g., `4.0.1`)
+4. Push the tag to GitHub
+
+GitHub Actions will automatically detect the new tag and:
+1. Build the distribution packages (wheel and source)
+2. Publish to PyPI using the trusted publisher authentication
+
+#### Security
+
+This approach uses **OpenID Connect (OIDC) Trusted Publishers**, which is more secure than API tokens because:
+- ✅ No credentials are stored in GitHub secrets
+- ✅ Only this specific workflow can publish
+- ✅ Only from this specific repository
+- ✅ PyPI automatically verifies the request is legitimate

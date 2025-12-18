@@ -7,6 +7,15 @@ from pathlib import Path
 
 
 def _pyarmor_is_available() -> bool:
+    """
+    Check if the pyarmor command-line tool is available and callable.
+
+    Attempts to run 'pyarmor --version' to verify the tool is installed
+    and accessible on the system PATH.
+
+    Returns:
+        True if pyarmor is available and callable, False otherwise.
+    """
     try:
         subprocess.run(
             ["pyarmor", "--version"],
@@ -23,6 +32,21 @@ def _pyarmor_is_available() -> bool:
 
 
 def _safe_dir_name(name: str) -> str:
+    """
+    Sanitize and validate a customer name for use as a directory name.
+
+    Prevents path traversal attacks by removing directory separators and
+    rejecting special directory names like '.' and '..'.
+
+    Args:
+        name: Customer name to sanitize.
+
+    Returns:
+        Sanitized directory name (safe for filesystem use).
+
+    Raises:
+        ValueError: If name is empty, whitespace-only, or results in an invalid directory name.
+    """
     name = (name or "").strip()
     if not name:
         raise ValueError("customer must be non-empty")
@@ -34,6 +58,30 @@ def _safe_dir_name(name: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """
+    CLI command to generate a PyArmor outer runtime key with embedded license token.
+
+    Creates a pyarmor.rkey file with the signed license token embedded via --bind-data.
+    The key is stored in a customer-specific directory under the licenses root.
+
+    At least one restriction (--expire-days or --bind) is required by PyArmor outer keys.
+
+    Args:
+        argv: Command-line arguments (default: sys.argv). Useful for testing.
+
+    Returns:
+        Exit code (0 for success, non-zero for error):
+        - 0: Success, prints path to created pyarmor.rkey
+        - 1: General error (pyarmor execution, file operations)
+        - 2: Invalid arguments or missing pyarmor installation
+
+    Command-line arguments:
+        --token (required): Signed license token to embed
+        --customer (required): Customer folder name under licenses root
+        --licenses-root: Root output folder (default: 'licenses')
+        --expire-days: Expiry in days for the key (maps to pyarmor -e option)
+        --bind: Machine binding string (maps to pyarmor -b option)
+    """
     ap = argparse.ArgumentParser(
         description="Generate a PyArmor outer runtime key (pyarmor.rkey) embedding --bind-data token."
     )
