@@ -35,7 +35,7 @@ ecdsa = "^0.18.0"
 # Include optional dependencies
 pyarmor = { version = ">=9.2.3", optional = true }
 
-[poetry.group.dev.dependencies]
+[tool.poetry.group.dev.dependencies]
 black = "^24.10.0"
 bumpver = "^2025.1131"
 coverage = "^7.6.4"
