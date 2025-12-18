@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import sys
 import importlib
 import pkgutil
 from typing import Any, Dict, Optional, Callable, Union, Sequence
@@ -25,8 +26,9 @@ def _find_pyarmor_runtime_pyarmor_func() -> Callable[..., Any]:
     obfuscation and runtime protection features. Obfuscated scripts have __pyarmor__ in their
     globals, but imported modules like licensekit need to explicitly locate and import it.
 
-    First tries the default runtime package name, then scans for any pyarmor_runtime_*
-    packages if the default is not found.
+    First tries the default runtime package name at the top level, then checks for it
+    within the calling module's package (for bundled runtimes), then scans for any
+    pyarmor_runtime_* packages if the default is not found.
 
     Returns:
         Callable __pyarmor__ function from the runtime package.
@@ -35,7 +37,7 @@ def _find_pyarmor_runtime_pyarmor_func() -> Callable[..., Any]:
         LicenseValidationError: If no PyArmor runtime package is found or if found packages
                               do not expose a callable __pyarmor__ function.
     """
-    # Fast path: this is the default runtime name in your build output
+    # Fast path: try the default runtime name at top level
     for name in ("pyarmor_runtime_000000",):
         try:
             mod = importlib.import_module(name)
@@ -45,7 +47,26 @@ def _find_pyarmor_runtime_pyarmor_func() -> Callable[..., Any]:
         except Exception:
             pass
 
-    # Fallback: scan for any pyarmor_runtime_*
+    # Try to find the runtime bundled within the calling package
+    # (e.g., when qotd bundles pyarmor_runtime_000000 inside itself)
+    try:
+        frame = sys._getframe(2)  # Go up 2 frames to reach the actual caller
+        caller_module = frame.f_globals.get("__name__", "")
+        if caller_module and "." in caller_module:
+            # Extract the top-level package name
+            top_package = caller_module.split(".")[0]
+            for candidate_name in ("pyarmor_runtime_000000",):
+                try:
+                    mod = importlib.import_module(f"{top_package}.{candidate_name}")
+                    fn = getattr(mod, "__pyarmor__", None)
+                    if callable(fn):
+                        return fn
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # Fallback: scan for any pyarmor_runtime_* at top level
     candidates: list[str] = []
     for m in pkgutil.iter_modules():
         name = m.name
@@ -76,7 +97,7 @@ def _find_pyarmor_runtime_pyarmor_func() -> Callable[..., Any]:
     ) from last_error
 
 
-def get_bind_data_token() -> str:
+def get_bind_data_token() -> Optional[str]:
     """
     Extract and decode the license token from PyArmor runtime bind-data.
 
@@ -86,27 +107,35 @@ def get_bind_data_token() -> str:
         __pyarmor__(1, None, b'keyinfo', 1)  -> returns expired epoch as integer
 
     Returns:
-        License token string extracted from bind-data.
+        License token string extracted from bind-data, or None if PyArmor runtime
+        is not available (e.g., when running non-obfuscated code).
 
     Raises:
-        LicenseValidationError: If the PyArmor runtime cannot be found, if no bind-data
-                              is present, if bind-data is not valid UTF-8, or if the
-                              extracted data does not look like a signed token.
+        LicenseValidationError: If bind-data is present but invalid (not UTF-8,
+                              or does not look like a signed token).
     """
     try:
         pyarmor_fn = _find_pyarmor_runtime_pyarmor_func()
+    except LicenseValidationError:
+        # PyArmor runtime not found - this is expected for non-obfuscated code
+        return None
 
+    try:
         # This matches your successful probe call
         raw = pyarmor_fn(0, None, b"keyinfo", 1)
 
         if raw is None:
-            raise LicenseValidationError("No bind-data found in PyArmor runtime key")
+            # No bind-data, but PyArmor runtime is present
+            return None
 
         if not isinstance(raw, (bytes, bytearray)):
             # Be defensive: coerce to bytes if runtime returns something unexpected
             raw = str(raw).encode("utf-8", errors="ignore")
 
         token = bytes(raw).decode("utf-8", errors="strict").strip()
+
+        if not token:
+            return None
 
         if "." not in token:
             raise LicenseValidationError("Bind-data did not look like a signed token")
@@ -155,9 +184,18 @@ def require_pyarmor_signed_license(
     Raises:
         LicenseValidationError: If license is invalid, signature verification fails,
                               product does not match, license has expired, or required
-                              fields are missing.
+                              fields are missing. Also raised if running non-obfuscated
+                              code (no PyArmor runtime found).
     """
     token = get_bind_data_token()
+
+    if token is None:
+        raise LicenseValidationError(
+            "PyArmor runtime package not found on sys.path or no bind-data present. "
+            "Ensure you're running an obfuscated script from its dist folder. "
+            "If you're testing non-obfuscated code, use LicenseContext.from_payload() instead."
+        )
+
     vk: VerifyingKey = load_public_key(public_key_pem)
 
     try:
