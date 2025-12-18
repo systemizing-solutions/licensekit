@@ -26,9 +26,10 @@ def _find_pyarmor_runtime_pyarmor_func() -> Callable[..., Any]:
     obfuscation and runtime protection features. Obfuscated scripts have __pyarmor__ in their
     globals, but imported modules like licensekit need to explicitly locate and import it.
 
-    First tries the default runtime package name at the top level, then checks for it
-    within the calling module's package (for bundled runtimes), then scans for any
-    pyarmor_runtime_* packages if the default is not found.
+    Searches in the following order:
+    1. Top-level pyarmor_runtime_000000
+    2. Any pyarmor_runtime_* already loaded in sys.modules (e.g., bundled in qotd)
+    3. Any available pyarmor_runtime_* packages (via iter_modules)
 
     Returns:
         Callable __pyarmor__ function from the runtime package.
@@ -47,26 +48,19 @@ def _find_pyarmor_runtime_pyarmor_func() -> Callable[..., Any]:
         except Exception:
             pass
 
-    # Try to find the runtime bundled within the calling package
-    # (e.g., when qotd bundles pyarmor_runtime_000000 inside itself)
-    try:
-        frame = sys._getframe(2)  # Go up 2 frames to reach the actual caller
-        caller_module = frame.f_globals.get("__name__", "")
-        if caller_module and "." in caller_module:
-            # Extract the top-level package name
-            top_package = caller_module.split(".")[0]
-            for candidate_name in ("pyarmor_runtime_000000",):
-                try:
-                    mod = importlib.import_module(f"{top_package}.{candidate_name}")
-                    fn = getattr(mod, "__pyarmor__", None)
-                    if callable(fn):
-                        return fn
-                except Exception:
-                    pass
-    except Exception:
-        pass
+    # Check already-loaded modules in sys.modules for any pyarmor_runtime_*
+    # This catches bundled runtimes that may have already been imported by the calling package
+    for modname in list(sys.modules.keys()):
+        if "pyarmor_runtime_" in modname:
+            try:
+                mod = sys.modules[modname]
+                fn = getattr(mod, "__pyarmor__", None)
+                if callable(fn):
+                    return fn
+            except Exception:
+                pass
 
-    # Fallback: scan for any pyarmor_runtime_* at top level
+    # Fallback: scan for any available pyarmor_runtime_* packages
     candidates: list[str] = []
     for m in pkgutil.iter_modules():
         name = m.name
