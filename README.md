@@ -39,6 +39,18 @@ It also provides:
 - Optional public-key file loading + SHA-256 fingerprint pinning to reduce key-swap risk.
 
 ## Vendor workflow
+0) Install
+Pip
+```shell
+pip install licensekit
+```
+
+Poetry:
+```shell
+poetry cache clear pypi --all -n
+poetry add licensekit
+```
+
 1) Generate keys (once)
 
 Using installed CLI:
@@ -143,6 +155,83 @@ You may also ship:
 
 in the same folder, then load the public key from disk at runtime.
 
+## Testing with licensekit
+
+When testing packages that use licensekit, you don't have access to the PyArmor runtime (unless code is obfuscated), so `LicenseContext.from_pyarmor_files()` will fail. 
+
+licensekit provides pytest fixtures that automatically mock `LicenseContext` during testing.
+
+### Usage in dependent packages
+
+In your package that uses licensekit, create a `conftest.py` file and import the testing fixtures:
+
+```python
+# test_licensekit_conf.py
+from licensekit import patch_license_context
+
+# That's it! The autouse fixture will apply the mock to all your tests automatically.
+```
+
+Now your tests will run without needing a real license:
+
+```python
+# test_my_feature.py
+from myapp import my_licensed_feature
+
+def test_my_feature():
+    # LicenseContext is automatically mocked during this test
+    result = my_licensed_feature()
+    assert result is not None
+```
+
+### How it works
+
+- `patch_license_context` is an **autouse fixture** that automatically patches `LicenseContext` for all tests
+- It returns a mock `LicenseContext` with permissive default claims:
+  - `product`: "forced_mock_example_test_product"
+  - `customer`: "forced_mock_test_customer"
+  - `plan`: "forced_mock_pro_plan"
+  - `features`: ["forced_mock_export", "forced_mock_sync", "forced_mock_api"]
+
+### Customizing the mock (optional)
+
+If you need different claim values in your tests, you can use the `mock_license_context` fixture:
+
+```python
+# conftest.py
+from licensekit import mock_license_context, patch_license_context
+from unittest.mock import patch
+
+@pytest.fixture
+def custom_license_context():
+    """Override with your test-specific license claims."""
+    from licensekit import LicenseContext
+    return LicenseContext.from_payload({
+        "product": "my_product",
+        "customer": "test_customer",
+        "plan": "free",  # Test free plan features
+        "features": ["basic"],
+    })
+
+@pytest.fixture
+def patch_with_custom_license(custom_license_context):
+    """Patch with custom claims instead of defaults."""
+    with patch("licensekit.LicenseContext", return_value=custom_license_context):
+        yield
+```
+
+### Testing obfuscated code
+
+Once your code is obfuscated with PyArmor:
+- The PyArmor runtime **will** be available
+- License validation will work normally
+- Your production code doesn't need any test-specific logic
+
+This means you can safely:
+1. Write tests that pass with the mocked `LicenseContext`
+2. Obfuscate and ship the code
+3. License validation works correctly in production
+
 ## Payload schema (suggested)
 Typical payload fields:
 
@@ -171,7 +260,7 @@ venv/scripts/activate
 source venv/bin/activate
 ```
 
-### Install the local `Plugo` project
+### Install the local `licensekit` project
 #### Install `poetry` package manager
 ```shell
 pip install poetry
@@ -183,7 +272,7 @@ poetry cache clear pypi --all -n
 poetry lock
 ```
 
-#### Install `plugo` package via `poetry` (including dependencies)
+#### Install `licensekit` package via `poetry` (including dependencies)
 ```shell
 poetry install --all-extras
 ```
@@ -228,9 +317,9 @@ This project uses GitHub Actions to automatically publish to PyPI when a new ver
    - Go to https://pypi.org/manage/account/publishing/
    - Click "Add a new pending publisher"
    - Fill in the following details:
-     - **PyPI Project Name**: `plugo`
-     - **Owner**: `RyanJulyan` (your GitHub username)
-     - **Repository name**: `plugo`
+     - **PyPI Project Name**: `licensekit`
+     - **Owner**: `systemizing-solutions` (your GitHub username)
+     - **Repository name**: `licensekit`
      - **Workflow name**: `publish.yml`
      - **Environment name**: `pypi`
    - Click "Add pending publisher"
@@ -243,7 +332,7 @@ bumpver update --patch  # or --minor, --major
 ```
 
 This will:
-1. Update the version in `pyproject.toml`, `src/plugo/__init__.py`, and `README.md`
+1. Update the version in `pyproject.toml`, `src/licensekit/__init__.py`, and `README.md`
 2. Create a git commit with the version bump
 3. Create a git tag (e.g., `4.0.1`)
 4. Push the tag to GitHub
