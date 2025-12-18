@@ -5,7 +5,7 @@ Pure-Python ECDSA license tokens for PyArmor outer keys (bind-data), with plan/f
 
 ```mermaid
 graph TD
-    A["1. Vendor generates<br/>keys"] -->|license_signing_private.pem<br/>license_signing_public.pem| B["2. Issue tokens<br/>per customer<br/>can create multiple products"]
+    A["1. Vendor generates<br/>keys"] -->|license_signing_private.pem<br/>license_signing_public.pem| B["2. Issue tokens<br/>per customer<br/>can create with multiple products allowed"]
     B -->|Token:<br/>payload.signature| C["3. Put token into<br/>PyArmor runtime license key<br/>--bind-data"]
     C -->|Ship<br/> license_signing_public.pem<br/> + pyarmor.rkey <br/> separately<br/> which can hold multiple<br/>products in 1 key | F["5b. Customer receives<br/>license key"]
     D["4. Obfuscate app<br/>with PyArmor<br/>pyarmor gen --outer"]
