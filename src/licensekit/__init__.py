@@ -29,6 +29,8 @@ from .io import (
 )
 from .context import LicenseContext
 
+__version__ = "0.0.2"
+
 # Testing utilities - conditionally imported to avoid pytest dependency in production
 try:
     from .testing_utils import mock_license_context, patch_license_context
