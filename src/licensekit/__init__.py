@@ -29,7 +29,7 @@ from .io import (
 )
 from .context import LicenseContext
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # Testing utilities - conditionally imported to avoid pytest dependency in production
 try:
