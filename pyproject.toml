@@ -57,8 +57,8 @@ licensekit-issue-license = "licensekit.cli_issue_license:main"
 
 
 [tool.urls]
-"Homepage" = "https://pypi.org/project/castenv/"
-"Repository" = "https://github.com/systemizing-solutions/castenv"
+"Homepage" = "https://pypi.org/project/licensekit/"
+"Repository" = "https://github.com/systemizing-solutions/licensekit"
 
 [tool.bumpver]
 current_version = "0.1.3"
