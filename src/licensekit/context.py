@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+import urllib.request
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Sequence, Set, Union
 import os
 
@@ -12,8 +14,14 @@ from .policy import (
     require_plan_at_least as _require_plan_at_least,
     PolicyError,
 )
-from .runtime import require_pyarmor_signed_license
+from .runtime import (
+    require_pyarmor_signed_license,
+    require_pyarmor_signed_license_with_token,
+    LicenseValidationError,
+)
 from .io import find_file_candidates, load_public_key_pem, PublicKeyLoadError
+
+LICENSEKIT_VALIDATE_URL_ENV = "LICENSEKIT_VALIDATE_URL"
 
 
 @dataclass(frozen=True)
@@ -37,6 +45,10 @@ class LicenseContext:
       - plan_allows(minimum_plan): Check if plan meets tier
       - require_plan(minimum_plan): Enforce minimum plan tier
 
+    **Remote validation:**
+      - Pass validate_url to constructors, or set LICENSEKIT_VALIDATE_URL env var
+      - The server is POSTed the token + expected values to confirm validity
+
     **Construction:**
       - from_payload(dict): Wrap a raw payload dictionary
       - from_pyarmor(public_key_pem, expected_product): Validate PyArmor-bound license
@@ -50,9 +62,11 @@ class LicenseContext:
 
     Attributes:
         payload: The underlying license payload dictionary (verified and validated).
+        token: The raw signed token string (if available). None for from_payload().
     """
 
     payload: Dict[str, Any]
+    token: Optional[str] = field(default=None, repr=False)
 
     @property
     def product(self) -> Optional[str]:
@@ -173,18 +187,105 @@ class LicenseContext:
         for n in names:
             self.require_feature(n)
 
+    def _remote_validate(self, url: str) -> None:
+        """
+        Validate the license token against a remote licensekit-server instance.
+
+        Posts the token and license claims to the validation endpoint. If the
+        server reports the license as invalid (revoked, expired, mismatched),
+        a LicenseValidationError is raised.
+
+        Args:
+            url: Full validation endpoint URL
+                 (e.g. ``https://example.com/api/v1/<client_slug>/validate``).
+
+        Raises:
+            LicenseValidationError: If the remote server rejects the license
+                                    or cannot be reached.
+        """
+        if not self.token:
+            return
+
+        body: Dict[str, Any] = {"token": self.token}
+
+        # Derive project_slug from the product claim
+        product = self.product
+        if isinstance(product, str):
+            body["project_slug"] = product
+            body["expected_product"] = product
+        elif isinstance(product, list) and product:
+            body["project_slug"] = product[0]
+            body["expected_product"] = product[0]
+        else:
+            # Cannot validate without a project slug
+            raise LicenseValidationError(
+                "CASE: Remote validation failed\n"
+                "ERROR: License has no product claim; cannot determine project_slug\n"
+                "ACTION: Ensure the license token includes a product claim"
+            )
+
+        if self.customer:
+            body["expected_customer"] = self.customer
+        if self.plan:
+            body["expected_plan"] = self.plan
+
+        features = list(self.features)
+        if features:
+            body["expected_features"] = features
+
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = json.loads(resp.read())
+        except Exception as e:
+            raise LicenseValidationError(
+                "CASE: Remote license validation request failed\n"
+                f"ERROR: {type(e).__name__}: {e}\n"
+                f"ACTION: Verify the validation URL is reachable: {url}"
+            ) from e
+
+        if not result.get("valid"):
+            errors = ", ".join(result.get("errors", ["Unknown error"]))
+            raise LicenseValidationError(
+                "CASE: Remote license validation rejected\n"
+                f"ERROR: {errors}\n"
+                f"ACTION: Contact your vendor for a valid license"
+            )
+
     @classmethod
-    def from_payload(cls, payload: Dict[str, Any]) -> "LicenseContext":
+    def from_payload(
+        cls,
+        payload: Dict[str, Any],
+        *,
+        token: Optional[str] = None,
+        validate_url: Optional[str] = None,
+    ) -> "LicenseContext":
         """
         Create a LicenseContext from a raw payload dictionary.
 
         Args:
             payload: License payload dictionary.
+            token: Optional raw signed token string.
+            validate_url: Optional URL for remote license validation. Falls back to
+                          LICENSEKIT_VALIDATE_URL environment variable if not provided.
 
         Returns:
             LicenseContext wrapping the payload.
         """
-        return cls(payload=dict(payload))
+        ctx = cls(payload=dict(payload), token=token)
+
+        effective_url = validate_url or os.environ.get(LICENSEKIT_VALIDATE_URL_ENV)
+        if effective_url and token:
+            ctx._remote_validate(effective_url)
+
+        return ctx
 
     @classmethod
     def from_pyarmor(
@@ -194,6 +295,7 @@ class LicenseContext:
         *,
         require_customer: bool = False,
         require_plan: bool = False,
+        validate_url: Optional[str] = None,
     ) -> "LicenseContext":
         """
         Create a LicenseContext by validating a PyArmor-bound license token.
@@ -206,6 +308,8 @@ class LicenseContext:
             expected_product: Single product name (str) or sequence of acceptable product names.
             require_customer: If True, enforce that license has a customer field.
             require_plan: If True, enforce that license has a plan field.
+            validate_url: Optional URL for remote license validation. Falls back to
+                          LICENSEKIT_VALIDATE_URL environment variable if not provided.
 
         Returns:
             LicenseContext wrapping the verified and validated license payload.
@@ -214,13 +318,13 @@ class LicenseContext:
             LicenseValidationError: If token cannot be read, signature verification fails,
                                   or license claims do not match expectations.
         """
-        payload = require_pyarmor_signed_license(
+        payload, token = require_pyarmor_signed_license_with_token(
             public_key_pem=public_key_pem,
             expected_product=expected_product,
             require_customer=require_customer,
             require_plan=require_plan,
         )
-        return cls.from_payload(payload)
+        return cls.from_payload(payload, token=token, validate_url=validate_url)
 
     @classmethod
     def from_pyarmor_files(
@@ -234,6 +338,7 @@ class LicenseContext:
         search: bool = False,
         extra_dirs: Optional[Sequence[Union[str, os.PathLike]]] = None,
         base_file: Optional[Union[str, os.PathLike]] = None,
+        validate_url: Optional[str] = None,
     ) -> "LicenseContext":
         """
         Create a LicenseContext by loading the public key from a file and validating the license.
@@ -254,6 +359,8 @@ class LicenseContext:
             search: If True, search for pubkey_path in multiple directories. If False, treat as direct path.
             extra_dirs: Optional additional directories to search (when search=True).
             base_file: Optional reference file; its directory is searched first (when search=True).
+            validate_url: Optional URL for remote license validation. Falls back to
+                          LICENSEKIT_VALIDATE_URL environment variable if not provided.
 
         Returns:
             LicenseContext wrapping the verified and validated license payload.
@@ -273,6 +380,7 @@ class LicenseContext:
                 expected_product=expected_product,
                 require_customer=require_customer,
                 require_plan=require_plan,
+                validate_url=validate_url,
             )
 
         filename = str(pubkey_path)
@@ -310,6 +418,7 @@ class LicenseContext:
                 expected_product=expected_product,
                 require_customer=require_customer,
                 require_plan=require_plan,
+                validate_url=validate_url,
             )
 
         # No candidate worked for loading a public key

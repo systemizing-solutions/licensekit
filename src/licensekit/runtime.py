@@ -311,3 +311,35 @@ def require_pyarmor_signed_license(
         )
 
     return payload
+
+
+def require_pyarmor_signed_license_with_token(
+    public_key_pem: bytes,
+    expected_product: Union[str, Sequence[str]],
+    *,
+    now: Optional[int] = None,
+    require_customer: bool = False,
+    require_plan: bool = False,
+) -> tuple[Dict[str, Any], str]:
+    """
+    Like require_pyarmor_signed_license but also returns the raw token string.
+
+    Returns:
+        Tuple of (payload dict, token string).
+    """
+    token = get_bind_data_token()
+    if token is None:
+        raise LicenseValidationError(
+            "CASE: No license token available\n"
+            "ERROR: get_bind_data_token() returned None\n"
+            "ACTION: Verify license is properly bound to this application"
+        )
+
+    payload = require_pyarmor_signed_license(
+        public_key_pem=public_key_pem,
+        expected_product=expected_product,
+        now=now,
+        require_customer=require_customer,
+        require_plan=require_plan,
+    )
+    return payload, token
